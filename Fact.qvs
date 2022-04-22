@@ -1,0 +1,248 @@
+[Global.tabFact]: NoConcatenate
+ 	load
+          [Transaction_id]
+         ,[Month]
+         ,[Revenue]
+    Resident  [Global.tabRevenue]
+;
+call Global.fNoOfRows('Global.tabFact');
+
+//-----------------------------------------------date---------------------------------------------------//
+
+[Global.tabExtremumDate]: NoConcatenate
+      load
+              	max(ceil(MonthEnd([Month])))-1		as		[MaxDate]
+         	 ,	min(ceil(MonthStart([Month])))		as		[MinDate]
+      Group
+	;
+	load Distinct [Month] Resident [Global.tabFact] Where not isnull([Month])
+;
+call Global.fNoOfRows('Global.tabConnect_date');
+store [Global.tabExtremumDate] into '$(Global.Path.sDataTier2)\ExtremumDate.qvd' (qvd);
+
+let Global.dMaxDate = peek('MaxDate' , -1 , 'Global.tabExtremumDate');
+let Global.dMinDate = peek('MinDate' , -1 , 'Global.tabExtremumDate');
+
+let vCurYear = Year(Global.dMaxDate);
+let vPreYear = vCurYear-1;
+
+// Даты для календаря
+[Global.listTmpDate]:	NoConcatenate
+    Load Distinct
+        $(Global.dMinDate)+IterNo()-1 as TmpDate
+    AutoGenerate (1)
+    While 
+        ($(Global.dMinDate) + IterNo()) <= $(Global.dMaxDate)+1 
+;
+call Global.fNoOfRows('Global.listTmpDate');
+
+// Добавляем все месяца
+/*left*/ join('Global.tabFact')
+	Load Distinct
+    	[Transaction_id]
+       , ceil(MonthStart($(Global.dMinDate)+IterNo()-1)) as [Month]
+       , 0	as [Revenue]
+    While ($(Global.dMinDate) + IterNo()) <= $(Global.dMaxDate)+1 
+    ;
+	Load Distinct [Transaction_id] Resident [Global.tabFact]
+;
+call Global.fNoOfRows('Global.tabFact'); 
+
+[Global.tabFact.Growth]: NoConcatenate
+	Load
+    		[Transaction_id]
+           ,[Month]
+           ,sum([Revenue])	as	[Revenue]
+    Resident [Global.tabFact]
+    Group by 
+    	    [Transaction_id]
+           ,[Month]
+;
+Drop table [Global.tabFact];
+Rename Table [Global.tabFact.Growth] to [Global.tabFact];
+//Store [Global.tabFact] into '$(Global.Path.sDataTier2)\Global.tabFact.qvd' (qvd);
+
+//-----------------------------------------------date---------------------------------------------------//
+
+left  join('Global.tabFact')
+	Load Distinct
+       [Transaction_id]
+      , ceil(MonthStart([Date]))	as	[Month]
+//      ,[User] 	
+      ,[Lead_id]
+      ,[Date]
+	Resident [Global.tabCRM_leads] 
+;
+call Global.fNoOfRows('Global.tabFact');
+
+left join('Global.tabFact')
+	Load
+       [Transaction_id]
+      ,[Month]
+      ,only([Revenue]) / Count(DISTINCT [Lead_id])	as	[AVG_amount]
+    Resident [Global.tabFact]
+    Where not IsNull([Lead_id])
+    Group By
+       [Transaction_id]
+      ,[Month]
+;
+call Global.fNoOfRows('Global.tabFact');
+
+
+/*left*/  join('Global.tabFact')	
+	Load Distinct	
+    	[Transaction_id]		
+	,	[User]												//~[User_ConnectBilling]
+    Resident [Global.tabBilling]        
+;
+call Global.fNoOfRows('Global.tabFact');
+
+// <<< Месеца
+/* left */ join('Global.tabFact')	
+	Load Distinct	
+		 [User]
+       , [Month]
+    Resident [Global.tabPlan]        
+;
+
+// <<< Составной ключ
+left join('Global.tabFact')	
+	Load Distinct	
+			[Month]
+		,	[User]
+    	,   [User] & '_' & [Month] 					as		[UserMonth]
+    Resident [Global.tabFact]        
+;
+
+// <<< Календарная дата
+[Global.tabFact.CalendarDate]:  NoConcatenate
+	Load Distinct	 
+			[Month]
+		,	[User]
+        ,	[Transaction_id]
+        ,	[Lead_id]
+        ,	[Date]
+        ,	[Revenue]
+        ,	[AVG_amount]
+        ,	[UserMonth]
+        ,	if(isnull([Date]) , [Month]	, [Date])	as		[CalendarDate]
+        ,	if(isnull([Date]) , 0 , -1)				as		[IsLead]
+        ,	-1										as		[IsFact]
+    Resident [Global.tabFact]
+;
+Drop Table [Global.tabFact];
+Rename Table [Global.tabFact.CalendarDate] to [Global.tabFact];
+call Global.fNoOfRows('Global.tabFact');
+
+[Global.tabFact.Growth]:  NoConcatenate
+	Load	 
+			[Month]
+		,	[User]
+        ,	[Transaction_id]
+        ,	[Lead_id]
+        ,	[Date]
+        ,	[Revenue]
+        ,	[AVG_amount]
+        ,	[UserMonth]
+        ,	[CalendarDate]
+        ,	[IsLead]
+        ,	[IsFact]
+    Resident [Global.tabFact]
+    Where Year([Month]) = $(#vCurYear)
+;
+call  Global.fNoOfRows('Global.tabFact.Growth');
+
+// Справочник выручка
+Left join('Global.tabFact.Growth')
+	load
+            [Transaction_id]
+          ,	max([Revenue])	as	[MaxRevenuePreYear]
+    Resident [Global.tabFact]
+    Where Year([Month]) = $(#vPreYear)
+    Group By [Transaction_id]
+;
+call  Global.fNoOfRows('Global.tabFact.Growth');
+
+Concatenate('Global.tabFact.Growth')
+	load * Resident [Global.tabFact]
+    Where  not ( Year([Month]) = $(#vCurYear) )
+;
+Drop table [Global.tabFact];
+call  Global.fNoOfRows('Global.tabFact.Growth');
+
+[Global.tabFact]:  NoConcatenate
+		load *
+        	,	if([GrowthRevenue]>0 , -1 , 0)		as	[IsGrowth]
+        ;
+		Load Distinct	 
+			[Month]
+		,	[User]
+        ,	[Transaction_id]
+        ,	[Lead_id]
+        ,	[Date]
+        ,	[Revenue]
+        ,	[AVG_amount]
+        ,	[UserMonth]
+        ,	[CalendarDate]
+        ,	[IsLead]
+        ,	[IsFact]
+        ,	[MaxRevenuePreYear]
+        ,	if(   ([Revenue] - [MaxRevenuePreYear]) > 0 
+        		, ([Revenue] - [MaxRevenuePreYear])
+                , 0
+            ) as	[GrowthRevenue]
+        Resident 
+				[Global.tabFact.Growth]
+;
+Drop table [Global.tabFact.Growth];
+call  Global.fNoOfRows('Global.tabFact');
+
+
+// Даты для транзакций
+[Global.tabFact.ShiftDate]:	NoConcatenate
+    Load Distinct
+         ceil(MonthStart(TmpDate))	 as	 [Month]
+        ,Floor(TmpDate - iterNo()+1) as  [CalendarDate]
+	Resident [Global.listTmpDate]
+    While
+        	TmpDate - iterNo()+1 >= ceil(MonthStart(TmpDate  , -2))    // Сдвиг на 3 месяца
+;
+call Global.fNoOfRows('tabFact.ShiftDate');
+//store [Global.tabFact.ShiftDate] into '$(Global.Path.sDataTier2)\ShiftDate.qvd' (qvd);
+
+left join('Global.tabFact.ShiftDate')
+	load Distinct
+    	  [CalendarDate]
+		, [Lead_id]
+        , [Transaction_id]
+    Resident [Global.tabFact]
+;
+call Global.fNoOfRows('Global.tabFact.ShiftDate');
+//store [Global.tabFact.ShiftDate] into '$(Global.Path.sDataTier2)\ShiftDate.qvd' (qvd);
+
+left  join('Global.tabFact')
+	load Distinct *
+    	, if([OrdersFromThreMonth]>0 , -1 , 0)	as [IsOrdersFromThreMonth]
+    ;
+	load
+    	  [Month]
+        , [Transaction_id]
+        , Count(DISTINCT [Lead_id])	as	[OrdersFromThreMonth]
+    Resident [Global.tabFact.ShiftDate]
+    Group by 
+         [Transaction_id]
+        ,[Month]
+;
+Drop Table  [Global.tabFact.ShiftDate];
+call Global.fNoOfRows('Global.tabFact');
+left  join('Global.tabFact')
+		load Distinct 
+        	[Transaction_id]
+           ,[Lead_id]
+           ,[User]
+           ,-1					as [ErrorDateLead]
+        Resident [Global.tabFact]
+        Where [Revenue] = 0 and [Lead_id] > 0
+;
+call Global.fNoOfRows('Global.tabFact');
+store [Global.tabFact] into '$(Global.Path.sDataTier2)\Fact.qvd' (qvd);

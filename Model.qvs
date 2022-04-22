@@ -1,0 +1,192 @@
+//--------------------------------------------------------------------------
+
+//Задачем параметры для генераци
+    let vNumGenerate 	= 1000;
+    let vNumUsers 		= 13;
+    let vNumCoins 		= 6;
+    let vNumSumm  		= 1000;
+    let vNumCurve 		= 17;
+    let vNumPoule 		= 34;
+    
+    let Local.vRatioOfPlanFact 	= 1.6;		//К-нт генерации (задает разницу План-Факт)
+    let Local.vRatioOfPreCurYear 	= 0.3;		//К-нт генерации (задает разницу 2021-2020)
+
+//--------------------------------------------------------------------------
+
+//Создаем случайные транзакции
+Token_Transaction: 
+	Load 
+      RecNo()									as Transaction_id,
+      Floor(rand() * $(#vNumUsers)) + 1 		as User,
+      Floor(rand() * $(#vNumCoins)) + 1  		as coin,
+      Floor(rand() * $(#vNumCurve)) + 1  		as Curve,
+      Floor(rand() * $(#vNumPoule)) + 1  		as Poule,
+      Time(floor(now())+rand() , 'hh:mm:ss')   	as Time
+    AutoGenerate $(#vNumGenerate)
+;
+
+//--------------------------------------------------------------------------
+
+
+IF Global.Flag.vGenerateRevenue THEN
+
+  //Получаем рандомный факт
+  [Global.tabRevenue]: NoConcatenate
+         load Distinct
+            [User]
+          , ceil(MonthStart([Month]))									as	[Month]
+          , Ceil((Rand() + Rand())*[Plan]*$(#Local.vRatioOfPlanFact))	as	[Revenue]
+         Resident [Global.tabPlan]
+  ;
+  call Global.fNoOfRows('Global.tabRevenue');
+
+  inner join('Global.tabRevenue')
+    LOAD Distinct
+           [User]
+          ,[Transaction_id]
+          ,[Cohort]
+    Resident [Global.tabBilling]
+  ;
+  call Global.fNoOfRows('Global.tabRevenue');
+
+  [Global.tabRevenue.Billing]: NoConcatenate
+          load 
+              [User]
+             ,[Transaction_id]
+             ,[Month]
+             ,[Revenue]
+             ,[Cohort]
+          Resident [Global.tabRevenue]
+          Where InMonth([Month] , [Cohort], 0) or [Month] > [Cohort]
+  ;
+  Drop table [Global.tabRevenue];
+  call Global.fNoOfRows('Global.tabRevenue.Billing');
+  
+  //----------------------------------------------------------2021----------------------------------------------------------//
+
+  [Global.tabRevenue.BillingCopy]: NoConcatenate load * Resident [Global.tabRevenue.Billing];
+  inner join('Global.tabRevenue.BillingCopy')
+  		Load Distinct
+        	 [Date]
+      		,[Transaction_id]
+      		,[User]
+        Resident [Global.tabCRM_leads]
+  ;
+  call Global.fNoOfRows('Global.tabRevenue.BillingCopy');
+
+  [Global.tabRevenue.CurYear]: NoConcatenate  
+           load 
+              [User]
+             ,[Transaction_id]
+             ,[Month]
+             ,[Revenue]
+             ,[Cohort]
+             ,[Date]
+          Resident [Global.tabRevenue.BillingCopy]	
+          Where InMonth([Date] , [Month], 0)
+  ;
+  Drop Field [Date] from [Global.tabRevenue.CurYear];
+  Drop table [Global.tabRevenue.BillingCopy];
+  call Global.fNoOfRows('Global.tabRevenue.CurYear');
+  
+
+  [Global.tabRevenue.Group]: NoConcatenate
+        Load 
+             [User]
+            ,[Month]
+            ,Ceil(only([Revenue]) / Count(DISTINCT [Transaction_id]))	as [Revenue]
+       Resident [Global.tabRevenue.CurYear]
+       Group by 
+             [User]
+            ,[Month]
+  ;
+  call Global.fNoOfRows('Global.tabRevenue.Group');
+
+  inner join('Global.tabRevenue.Group')
+    LOAD Distinct
+           [User]
+          ,[Month]
+          ,[Transaction_id]
+          ,[Cohort]
+    Resident [Global.tabRevenue.CurYear]
+  ;
+  Drop Field [User] from [Global.tabRevenue.Group];
+  Drop table [Global.tabRevenue.CurYear];
+  call Global.fNoOfRows('Global.tabRevenue.Group');
+
+  [Global.tabRevenue]: NoConcatenate
+        Load 
+              [Transaction_id]
+             ,[Cohort]
+             ,[Month]
+             ,Ceil([Revenue] *Rand()) 		as [Revenue]
+        Resident [Global.tabRevenue.Group]
+  ;
+  Drop table [Global.tabRevenue.Group];
+  call Global.fNoOfRows('Global.tabRevenue');
+  
+  
+//----------------------------------------------------------2021----------------------------------------------------------//  
+  
+//----------------------------------------------------------2020----------------------------------------------------------//  
+
+ // Отбираем компании по Billing.Cohort
+ [Global.tabRevenue.PreYear]: NoConcatenate  
+          load Distinct
+              [Transaction_id]
+             ,AddYears([Month] , -1)				as	[Month]
+             ,[Revenue]
+//             ,[Cohort]
+             ,[User]
+          Resident  
+          		[Global.tabRevenue.Billing]
+ //                 [Global.tabRevenue]
+          Where InMonth(AddYears([Month] , -1) , [Cohort], 0) or AddYears([Month] , -1) > [Cohort]
+  ; 
+  Drop table [Global.tabRevenue.Billing];
+  Drop Field [Cohort] from  [Global.tabRevenue];
+  call Global.fNoOfRows('Global.tabRevenue.PreYear');
+ 
+ [Global.tabRevenue.Group]: NoConcatenate
+        Load 
+             [User]
+            ,[Month]
+            ,Ceil(only([Revenue]) / Count(DISTINCT [Transaction_id]))	as [Revenue]
+       Resident [Global.tabRevenue.PreYear]
+       Group by 
+             [User]
+            ,[Month]
+  ;
+  call Global.fNoOfRows('Global.tabRevenue.Group');  
+  
+  inner join('Global.tabRevenue.Group')
+    LOAD Distinct
+           [User]
+          ,[Month]
+          ,[Transaction_id]
+//          ,[Cohort]
+    Resident [Global.tabRevenue.PreYear]
+  ;
+  Drop Field [User] from [Global.tabRevenue.Group];
+  Drop table [Global.tabRevenue.PreYear];
+  call Global.fNoOfRows('Global.tabRevenue.Group');
+  
+  [Global.tabRevenue.GroupPreYear]: NoConcatenate
+        Load 
+              [Transaction_id]
+//             ,[Cohort]
+             ,[Month]
+             ,Ceil([Revenue] *Rand() * $(#Local.vRatioOfPreCurYear)) 	as [Revenue]
+        Resident 
+        		[Global.tabRevenue.Group]
+//				 [Global.tabRevenue.PreYear]
+  ;
+  Drop table [Global.tabRevenue.Group];
+  call Global.fNoOfRows('Global.tabRevenue');
+  
+//----------------------------------------------------------2020----------------------------------------------------------//
+ 
+
+  let Local.vRatioOfPlanFact 	=;
+  let Local.vRatioOfPreCurYear 	=;
+

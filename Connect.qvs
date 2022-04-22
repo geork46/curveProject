@@ -1,0 +1,53 @@
+// Справочник-Привязка
+[Global.tabConnect_date]: NoConcatenate
+	Load Distinct
+    	[Transaction_id]
+    ,	[Connect_date_CRM]
+    ,	[User]				as		[User_ConnectCRM]	//<>[User]
+    Resident [Global.tabCRM]
+;
+call Global.fNoOfRows('Global.tabConnect_date');
+
+join('Global.tabConnect_date')
+	load Distinct
+    	[Transaction_id]
+	,	[Connect_date_Billing]
+    ,	[Cohort]														//[Cohort] <> [Connect_date_Billing] *Transaction_id:271!!!
+   	,	InYear([Cohort] ,  date($(#Global.dMaxDate)) , 0)				as	[NewСustomer]
+    ,	if(InYear([Cohort] ,  date($(#Global.dMaxDate)) , 0) , 2 , 0.5)	as	[PlanMultiplier]
+  	,	[User]														as	[User_ConnectBilling]
+    Resident [Global.tabBilling]    
+;
+call Global.fNoOfRows('Global.tabConnect_date');
+Rename Table [Global.tabConnect_date] to [Global.tabConnect_date.Flags];
+
+[Global.tabConnect_date]: NoConcatenate
+	load *
+    	, if(not [IsConnectDate] and not [IsUser] , -1 , 0)			as [NotConnectCRM]
+    ;
+	load 
+    		[Transaction_id]
+           ,[Connect_date_CRM]
+           ,[Connect_date_Billing]
+           ,[User_ConnectCRM]
+//           ,[User_ConnectBilling]
+           ,[Cohort]
+           ,[NewСustomer]
+           ,[PlanMultiplier]
+           ,If([User_ConnectCRM] >= [Connect_date_Billing] , -1 , 0)		as	[IsConnectDate]		// <<< отклонение от ТЗ
+           ,If([User_ConnectCRM] like [User_ConnectBilling] , -1 , 0)	as	[IsUser]
+     Resident [Global.tabConnect_date.Flags]
+;   
+Drop table [Global.tabConnect_date.Flags];
+call Global.fNoOfRows('Global.tabConnect_date');         
+store [Global.tabConnect_date] into '$(Global.Path.sDataTier2)\Connect_date.qvd' (qvd);
+
+[Global.tabSalesPlan]:
+  LOAD Distinct
+       [User] & '_' & [Month] as	[UserMonth]
+      ,[Plan]
+      ,	-1		as	[IsPlan]
+   Resident [Global.tabPlan]
+;
+call Global.fNoOfRows('Global.tabSalesPlan');
+store [Global.tabSalesPlan] into '$(Global.Path.sDataTier2)\SalesPlan.qvd' (qvd);

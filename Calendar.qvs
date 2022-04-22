@@ -1,0 +1,29 @@
+[Global.tabCalendar]:
+    Load
+          Floor(TmpDate) as [CalendarDate]
+        , Floor(TmpDate) as #Периоды
+        , date(TmpDate) as Периоды_Дата
+        , DayNumberOfYear(TmpDate) as Периоды_ДеньГода
+        , day(TmpDate) as Периоды_ДеньМесяца
+        , Text(WeekDay(TmpDate)) as Периоды_ДеньНедели
+        , Week(TmpDate) as Периоды_Неделя
+        , WeekName(TmpDate) as Периоды_НеделяГод
+        , Month(TmpDate) as Периоды_Месяц
+        , MonthName(TmpDate) as Периоды_МесяцГод
+        , AutoNumber(MonthName(TmpDate), 'Month') as #Периоды_МесяцГод
+        , ceil(Month(TmpDate)/3) as Периоды_Квартал
+        , QuarterName(TmpDate) as Периоды_КварталГод
+        , Year(TmpDate) as Периоды_Год
+        , '0' as #Периоды_Смещение
+        , '0' as #Периоды_ТипСмещение
+        ,inyeartodate(TmpDate,$(#Global.dMaxDate),0) * -1 as CurYTDFlag
+        ,inyeartodate(TmpDate,$(#Global.dMaxDate),-1) * -1 as LastYTDFlag
+        ,InMonthToDate(TmpDate,$(#Global.dMaxDate), 0) * -1 AS CMTD_Flag
+        ,InMonthToDate(TmpDate,$(#Global.dMaxDate), -12) * -1 AS PMTD_Flag
+    Resident [Global.listTmpDate]
+;
+
+
+Drop table [Global.listTmpDate];
+call Global.fNoOfRows('Global.tabCalendar');
+store [Global.tabCalendar] into '$(Global.Path.sDataTier2)\Calendar.qvd' (qvd);	

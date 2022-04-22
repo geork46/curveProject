@@ -1,0 +1,11 @@
+SUB Global.fPrint(In.sMessage)
+    rem Выводит сообщение с меткой времени & имя документа;
+    In.sMessage = DocumentName() & ' ' & localtime() & ' | ' & In.sMessage;
+    Trace $(In.sMessage);
+ENDSUB;
+​
+SUB Global.fNoOfRows(In.sTableName , Return.vNumRowsOfTable)
+    rem Выводит / возвращает количество строк в таблице;
+    Return.vNumRowsOfTable = num(NoOfRows('$(In.sTableName)')/* , '# ##0' */);
+    call Global.fPrint('Таблица ' & In.sTableName & ' содержит строк: ' & Return.vNumRowsOfTable);
+ENDSUB;
